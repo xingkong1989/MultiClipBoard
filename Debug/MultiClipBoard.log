@@ -1,0 +1,4 @@
+﻿  DrawFunction.cpp
+d:\vs\mfc\multiclipboard\multiclipboard\drawfunction.cpp(139): warning C4244: “=”: 从“double”转换到“int”，可能丢失数据
+d:\vs\mfc\multiclipboard\multiclipboard\drawfunction.cpp(145): warning C4244: “=”: 从“double”转换到“int”，可能丢失数据
+  MultiClipBoard.vcxproj -> D:\vs\mfc\MultiClipBoard\Debug\MultiClipBoard.exe
