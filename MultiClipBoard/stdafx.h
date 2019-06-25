@@ -54,3 +54,7 @@
 #endif
 
 
+#include <afxwin.h>
+#include <WinSvc.h>
+#include "Include\YxCmnLib\YxCommonQuoteHeader.h"
+void OutPutString(wchar_t* wszFormat, ...);

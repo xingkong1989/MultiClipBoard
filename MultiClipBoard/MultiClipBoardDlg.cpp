@@ -3,11 +3,11 @@
 //
 
 #include "stdafx.h"
+#include <Imm.h>
 #include "MultiClipBoard.h"
 #include "MultiClipBoardDlg.h"
 #include "afxdialogex.h"
-#include <Imm.h>
-#include "DrawFunction.h"
+#include "DataWnd.h"
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -20,21 +20,6 @@
 #define ID_TIMER_CHECKFOCUS 133			// 检查焦点是否离开程序
 
 const int RectPadding = 20;				// 矩形框之间的空白间距
-
-void OutPutString(wchar_t* wszFormat, ...)
-{
-	va_list vList;
-	wchar_t wsOutString[MAX_PATH] = { 0 };
-	ZeroMemory(wsOutString, MAX_PATH * sizeof(WCHAR));
-
-	va_start(vList, wszFormat);
-	_vsntprintf_s(wsOutString, MAX_PATH, wszFormat, vList);
-	va_end(vList);
-	wcscat_s(wsOutString, MAX_PATH, L"\r\n");
-
-	OutputDebugString(wsOutString);
-}
-
 
 CMultiClipBoardDlg::CMultiClipBoardDlg(CWnd* pParent /*=NULL*/)
 	: CDialogEx(IDD_SWITCH_DIALOG, pParent)
@@ -94,6 +79,7 @@ BOOL CMultiClipBoardDlg::OnInitDialog()
 	SetIcon(m_hIcon, TRUE);			// 设置大图标
 	SetIcon(m_hIcon, FALSE);		// 设置小图标
 	::SetWindowLong(m_hWnd, GWL_EXSTYLE, WS_EX_TOOLWINDOW);
+
 
 	// 添加系统托盘	
 	m_notifyData.cbSize = sizeof(NOTIFYICONDATAW);
@@ -164,7 +150,7 @@ void CMultiClipBoardDlg::OnPaint()
 		dc.FillRect(&bkGroundRect, &bkBrush);
 
 		CRect averageRectSize;							// 矩形框平均尺寸
-		ClipboardArrayData* pClipboardArrayData = nullptr;		// 每组剪切板数据
+		ClipboardArrayWnd* pClipboardArrayWnd = nullptr;		// 每组剪切板数据
 		int dwListCount = m_clipboardList.GetSize();	// 剪切板数组的个数
 		POSITION arraryPosition = m_clipboardList.GetHeadPosition();
 
@@ -191,10 +177,10 @@ void CMultiClipBoardDlg::OnPaint()
 			destRect.top += y; (RectPadding + averageRectSize.Height()) + RectPadding;
 			destRect.bottom += y;
 
-			pClipboardArrayData = &m_clipboardList.GetNext(arraryPosition);
+			pClipboardArrayWnd = &m_clipboardList.GetNext(arraryPosition);
 
 			// 绘制边框
-			if (pClipboardArrayData->m_id == m_curClipboardArrayData.m_id)
+			if (pClipboardArrayWnd->m_id == m_curClipboardArrayData.m_id)
 			{
 				CPen pen, *oldPen = NULL;
 				pen.CreatePen(PS_DASH, m_frameWidth, m_frameColor);
@@ -206,7 +192,7 @@ void CMultiClipBoardDlg::OnPaint()
 			destRect.DeflateRect(m_frameWidth, m_frameWidth);
 			dc.FillRect(destRect, &brush);
 
-			DrawClipboardArray(*pClipboardArrayData, &dc, destRect);
+			DrawClipboardArray(*pClipboardArrayWnd, &dc, destRect);
 		}
 
 		//CDialogEx::OnPaint();
@@ -351,7 +337,7 @@ LRESULT CMultiClipBoardDlg::OnSwitchClipboard(WPARAM wParam, LPARAM lParam)
 {
 	POSITION position = m_clipboardList.GetHeadPosition();
 	POSITION headPos = position;
-	ClipboardArrayData* clipboardData = nullptr;
+	ClipboardArrayWnd* clipboardData = nullptr;
 	bool bFind = false;
 
 	if (!m_bSwitchNext)
@@ -460,7 +446,7 @@ void CMultiClipBoardDlg::OnDrawClipboard()
 	}
 
 	// 接收到消息，将数据保存到当前的数据类
-	ClipboardArrayData clipboardArray;
+	ClipboardArrayWnd clipboardArrayWnd;
 
 	BOOL bOperate = OpenClipboard();
 	if (!bOperate)
@@ -491,8 +477,8 @@ void CMultiClipBoardDlg::OnDrawClipboard()
 				ClipboardData tmp, *pClipboardData = NULL;
 				int index = 0;
 				// 先添加到数组里，避免重复分配内存
-				index = clipboardArray.m_clipboardArray.Add(tmp);
-				if (pClipboardData = &clipboardArray.m_clipboardArray.GetAt(index))
+				index = clipboardArrayWnd.m_clipboardArray.Add(tmp);
+				if (pClipboardData = &clipboardArrayWnd.m_clipboardArray.GetAt(index))
 				{
 					pClipboardData->m_dwFormat = dwEnumFormat;
 					pClipboardData->m_dwDataSize = dwSize;
@@ -505,41 +491,88 @@ void CMultiClipBoardDlg::OnDrawClipboard()
 						GlobalUnlock(hData);
 					}
 				}
+				dwCount++;
 			}
-			dwCount++;
 		}
 	}
 	CloseClipboard();
 
+	if (clipboardArrayWnd.m_clipboardArray.GetSize() == 0)
+	{
+		return;
+	}
+
 	// 将数据保存到数据链表中，并且分配id
 	POSITION position = m_clipboardList.GetHeadPosition();
 	DWORD dwListSize = m_clipboardList.GetSize();
-	ClipboardArrayData* pClipboardArrayData = NULL;
+	ClipboardArrayWnd* pClipboardArrayWnd = NULL;
 
 	// 分配一个内存用来查找哪个id没有分配
 	BYTE *bArrFlag = new BYTE[dwListSize + 1];
-	memset(bArrFlag, 1, dwListSize + 1);
-
-	for (; position != nullptr; )
-	{
-		pClipboardArrayData = &m_clipboardList.GetNext(position);
-		bArrFlag[pClipboardArrayData->m_id] = 0;
-	}
-
-	clipboardArray.m_id = dwListSize;
-	for (DWORD i = 0; i < dwListSize; i++)
-	{
-		if (bArrFlag[i] == 1)
-		{
-			clipboardArray.m_id = i;
-			break;
-		}
-	}
-	m_clipboardList.AddTail(clipboardArray);
 	if (bArrFlag)
 	{
+		memset(bArrFlag, 1, dwListSize + 1);
+
+		for (; position != nullptr; )
+		{
+			pClipboardArrayWnd = &m_clipboardList.GetNext(position);
+			bArrFlag[pClipboardArrayWnd->m_id] = 0;
+		}
+
+		clipboardArrayWnd.m_id = dwListSize;
+		for (DWORD i = 0; i < dwListSize; i++)
+		{
+			if (bArrFlag[i] == 1)
+			{
+				// 找到一个id
+				clipboardArrayWnd.m_id = i;
+				break;
+			}
+		}
+		
 		delete[] bArrFlag;
 	}
+	
+	CRect averageRectSize;							// 矩形框平均尺寸
+	ClipboardArrayWnd* pClipboardArrayWnd = nullptr;		// 每组剪切板数据
+	int listCount = m_clipboardList.GetSize();	// 剪切板数组的个数
+	POSITION arraryPosition = m_clipboardList.GetHeadPosition();
+
+	int eachLineCount = CalculateDrawRectSize(listCount, averageRectSize);
+	for (int i = 0; i < listCount && arraryPosition; i++)
+	{
+		// 调整 tmpRect的位置
+		int x = 0, y = 0;
+		CRect destRect = averageRectSize;
+
+		x = i % eachLineCount * (RectPadding + averageRectSize.Width()) + RectPadding;
+		y = i / eachLineCount * (RectPadding + averageRectSize.Height()) + RectPadding;
+		destRect.left += x;
+		destRect.right += x;
+		destRect.top += y; (RectPadding + averageRectSize.Height()) + RectPadding;
+		destRect.bottom += y;
+
+		if ((clipboardArrayWnd.m_id == pClipboardArrayWnd->m_id)
+			&& clipboardArrayWnd.m_wnd == NULL)
+		{
+			// 创建新的窗口
+			CDataWnd* dataWnd = new CDataWnd();
+			if (dataWnd->Create(_T("static"), NULL, WS_CHILD | WS_VISIBLE | WS_THICKFRAME, &destRect, this, 0, NULL))
+			{
+				clipboardArrayWnd.m_wnd = dataWnd;
+				m_clipboardList.AddTail(clipboardArrayWnd);
+			}
+		}
+		else
+		{
+			// 设置新窗口的位置
+			pClipboardArrayWnd->m_wnd->MoveWindow(&destRect, FALSE);
+		}
+
+		pClipboardArrayWnd = &m_clipboardList.GetNext(arraryPosition);
+	}
+
+	//CDialogEx::OnPaint();
 }
 
 
@@ -653,7 +686,7 @@ BOOL CMultiClipBoardDlg::DrawClipboardData(const ClipboardData& clipboardData, C
 					sShowString.Append(L"\r\n");
 				}
 			}
-			
+
 			DrawClipboardText(sShowString.GetBuffer(), pDc, &rect, m_sInvalidChar);
 		}
 		break;
@@ -702,14 +735,15 @@ BOOL CMultiClipBoardDlg::DrawClipboardData(const ClipboardData& clipboardData, C
 	return bSuccess;
 }
 
-BOOL CMultiClipBoardDlg::DrawClipboardArray(const ClipboardArrayData& clipboardArrayData, CDC* pDc, CRect &rect)
+
+BOOL CMultiClipBoardDlg::DrawClipboardArray(const ClipboardArrayWnd& clipboardArrayWnd, CDC* pDc, CRect &rect)
 {
-	int dwCount = clipboardArrayData.m_clipboardArray.GetSize();
+	int dwCount = clipboardArrayWnd.m_clipboardArray.GetSize();
 	const ClipboardData* pData = NULL;
 
 	for (int i = 0; i < dwCount; i++)
 	{
-		pData = &clipboardArrayData.m_clipboardArray.GetAt(i);
+		pData = &clipboardArrayWnd.m_clipboardArray.GetAt(i);
 
 		if (DrawClipboardData(*pData, pDc, rect))
 		{
@@ -723,8 +757,8 @@ BOOL CMultiClipBoardDlg::DrawClipboardArray(const ClipboardArrayData& clipboardA
 /**
 	选取屏幕上可供显示的范围。
 	具体算法：
-			先按大小最大来，再安排多行。如果排不下，先将大小减小，如果再排不下，
-		则用多行，如此循环。
+			先缩小矩形框的尺寸，再增加行数。如果排不下，先将大小减小，如果再排不下，
+		则增加行数，如此循环。
 */
 int CMultiClipBoardDlg::CalculateDrawRectSize(const DWORD dwCount, _Out_ CRect &rect)
 {
@@ -738,21 +772,21 @@ int CMultiClipBoardDlg::CalculateDrawRectSize(const DWORD dwCount, _Out_ CRect &
 
 	int iScreenX = 0, iScreenY = 0;			// 可供显示范围
 	int iWidth = 0, iHeight = 0;
-	int iLine = 1;							// 显示多少行
 
-	// 可供显示的区域
+	// 可供显示的范围
 	iScreenX = GetSystemMetrics(SM_CXSCREEN) * 4 / 5;
 	iScreenY = GetSystemMetrics(SM_CYSCREEN) * 4 / 5;
 
 	// 矩形框显示的最大区域
 	RectMaxWidth = iScreenX / 2;
 	RectMaxHeight = iScreenY / 2;
-	
+
 	RectMaxWidth = RectMaxHeight = min(RectMaxWidth, RectMaxHeight);
 
 	rect.SetRectEmpty();
 
-	int iCountMaxLine = dwCount;
+	int iMaxCountPerLine = dwCount;			// 每行最多存放的个数
+	int iLine = 1;							// 显示多少行
 	do
 	{
 		if (RectMaxWidth < RectMinWidth || RectMaxHeight < RectMinHeight)
@@ -760,31 +794,32 @@ int CMultiClipBoardDlg::CalculateDrawRectSize(const DWORD dwCount, _Out_ CRect &
 			break;
 		}
 
+		// 减小尺寸还是增加行数，1表示减小尺寸
 		BOOL bSwitch = 1;
 		do
 		{
 			// 暂时只判断横向是否够，矩形框的大小和数量递减
-			int iRemainPix = (iScreenX - RectPadding) - (iCountMaxLine * (RectPadding + RectMaxWidth));
+			int iRemainPix = (iScreenX - RectPadding) - (iMaxCountPerLine * (RectPadding + RectMaxWidth));
 			if (iRemainPix < 0)
 			{
 				if (bSwitch)
-				{
+				{	// 减小尺寸
 					RectMaxWidth -= RectDecrease;
 				}
 				else
-				{
-					iCountMaxLine--;
+				{	// 每行个数减小
+					iMaxCountPerLine--;
 				}
 				bSwitch ^= 1;
-				if (RectMaxWidth < RectMinWidth || iCountMaxLine <= 0)
-				{
+				if (RectMaxWidth < RectMinWidth || iMaxCountPerLine <= 0)
+				{	// 放不下，退出
 					iLine = 0;
 					break;
 				}
 			}
 			else
 			{
-				iLine = (dwCount + iCountMaxLine - 1) / iCountMaxLine;
+				iLine = (dwCount + iMaxCountPerLine - 1) / iMaxCountPerLine;
 				rect.SetRect(0, 0, RectMaxWidth, RectMaxWidth);
 				break;
 			}
@@ -793,9 +828,10 @@ int CMultiClipBoardDlg::CalculateDrawRectSize(const DWORD dwCount, _Out_ CRect &
 
 	} while (FALSE);
 
-	return iCountMaxLine;
+	return iMaxCountPerLine;
 }
 
+// 计算显示所有数据所需窗口的大小
 BOOL CMultiClipBoardDlg::CalculateWindow(CRect &rect)
 {
 	BOOL bSuccess = FALSE;
@@ -806,6 +842,8 @@ BOOL CMultiClipBoardDlg::CalculateWindow(CRect &rect)
 	int x = 0, y = 0;
 
 	::GetWindowRect(::GetDesktopWindow(), &windowRect);
+
+	// 传入桌面的大小，和剪切板数据的个数
 	int iLineCount = CalculateDrawRectSize(dwCount, averageRect);
 	if (iLineCount > 0)
 	{

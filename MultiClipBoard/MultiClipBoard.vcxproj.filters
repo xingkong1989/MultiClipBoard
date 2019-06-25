@@ -42,7 +42,7 @@
     <ClInclude Include="ClipboardData.h">
       <Filter>头文件</Filter>
     </ClInclude>
-    <ClInclude Include="DrawFunction.h">
+    <ClInclude Include="DataWnd.h">
       <Filter>头文件</Filter>
     </ClInclude>
   </ItemGroup>
@@ -62,7 +62,7 @@
     <ClCompile Include="ClipboardData.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
-    <ClCompile Include="DrawFunction.cpp">
+    <ClCompile Include="DataWnd.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
   </ItemGroup>

@@ -5,7 +5,39 @@
 #pragma once
 #include "ClipboardData.h"
 
-typedef CArray<CRect> CRectArray;
+typedef CArray<ClipboardData> ClipboardArray;
+
+class ClipboardArrayWnd
+{
+public:
+	ClipboardArrayWnd()
+	{
+		m_wnd = NULL;
+		m_id = 0;
+	}
+	DWORD m_id;
+	CWnd * m_wnd;
+	ClipboardArray m_clipboardArray;
+
+	BOOL operator == (ClipboardArrayWnd data)
+	{
+		return m_id == data.m_id;
+	}
+
+	ClipboardArrayWnd& operator = (const ClipboardArrayWnd& other)
+	{
+		if (other.m_id != m_id)
+		{
+			for (size_t i = 0; i < other.m_clipboardArray.GetSize(); i++)
+			{
+				m_clipboardArray.Add(other.m_clipboardArray.GetAt(i));
+			}
+			m_id = other.m_id;
+		}
+
+		return *this;
+	}
+};
 
 // CMultiClipBoardDlg 对话框
 class CMultiClipBoardDlg : public CDialogEx
@@ -50,7 +82,20 @@ protected:
 	
 
 	/**
-		@function:	绘制ClipboardData中的数据
+	@function:	在窗口上绘制ClipboardList中的数据
+
+	@param clipboardList	剪切板数据链表
+	@param pDc				为绘制目标句柄dc句柄
+	@param rect				矩形框大小，传入矩形框的大小，并且返回实际所用的大小
+	同DrawClipboardData 的 第三个参数
+
+	@return		返回成功或者失败
+	*/
+	BOOL DrawClipboardArray(const ClipboardArrayWnd& clipboardArrayWnd, CDC* pDc, CRect &rect);
+
+
+	/**
+		@function:	绘制一个ClipboardData中的数据
 
 		@param clipboardData	数据内容
 		@param pDc				为绘制的目标dc句柄，可以为空
@@ -60,19 +105,7 @@ protected:
 	*/
 	BOOL DrawClipboardData(const ClipboardData& clipboardData, CDC* pDc, _Inout_  CRect &rect);
 
-
-	/**
-		@function:	绘制ClipboardList中的数据
-
-		@param clipboardList	剪切板数据链表
-		@param pDc				为绘制目标句柄dc句柄
-		@param rect				矩形框大小，传入矩形框的大小，并且返回实际所用的大小
-							同DrawClipboardData 的 第三个参数
-
-		@return		返回成功或者失败
-	*/
-	BOOL DrawClipboardArray(const ClipboardArrayData& clipboardArrayData, CDC* pDc, CRect &rect);
-
+	
 	/**
 		@function:	根据屏幕大小及需要绘制的矩形框数量计算出矩形框的大小
 
@@ -84,9 +117,9 @@ protected:
 	int CalculateDrawRectSize(const DWORD dwCount, _Out_ CRect &rect);
 
 	/**
-		@function:	计算窗口的大小
+		@function:	计算显示所有数据所需窗口的大小
 		
-		@param rect				用来返回窗口的大小
+		@param rect 用来返回窗口的大小
 
 		@return		返回成功还是失败
 	*/
@@ -110,8 +143,8 @@ private:
 	DWORD m_rectWidth;							// 绘图的矩形框宽度
 	DWORD m_rectPadding;						// 矩形框周围间距
 
-	CList<ClipboardArrayData> m_clipboardList;	// 剪切板数据链表
-	ClipboardArrayData m_curClipboardArrayData;	// 当前选中的剪切板数据
+	CList<ClipboardArrayWnd> m_clipboardList;	// 剪切板数据链表
+	ClipboardArrayWnd m_curClipboardArrayData;	// 当前选中的剪切板数据
 
 	CString m_sInvalidChar;						// 绘制文字时不现实的字符
 

@@ -28,29 +28,3 @@ public:
 		return *this;
 	}
 };
-
-class ClipboardArrayData
-{
-public:
-	DWORD m_id;
-	CArray<ClipboardData> m_clipboardArray;
-
-	BOOL operator == (ClipboardArrayData data)
-	{
-		return m_id == data.m_id;
-	}
-
-	ClipboardArrayData& operator = (const ClipboardArrayData& other)
-	{
-		if (other.m_id != m_id)
-		{
-			for (size_t i = 0; i < other.m_clipboardArray.GetSize(); i++)
-			{
-				m_clipboardArray.Add(other.m_clipboardArray.GetAt(i));
-			}
-			m_id = other.m_id;
-		}
-
-		return *this;
-	}
-};

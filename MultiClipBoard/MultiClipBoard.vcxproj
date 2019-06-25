@@ -189,7 +189,7 @@
     <ClInclude Include="ActiveDialog.h" />
     <ClInclude Include="ClipboardData.h" />
     <ClInclude Include="Config.h" />
-    <ClInclude Include="DrawFunction.h" />
+    <ClInclude Include="DataWnd.h" />
     <ClInclude Include="MultiClipBoard.h" />
     <ClInclude Include="MultiClipBoardDlg.h" />
     <ClInclude Include="Resource.h" />
@@ -199,7 +199,7 @@
   <ItemGroup>
     <ClCompile Include="ActiveDialog.cpp" />
     <ClCompile Include="ClipboardData.cpp" />
-    <ClCompile Include="DrawFunction.cpp" />
+    <ClCompile Include="DataWnd.cpp" />
     <ClCompile Include="MultiClipBoard.cpp" />
     <ClCompile Include="MultiClipBoardDlg.cpp" />
     <ClCompile Include="stdafx.cpp">
