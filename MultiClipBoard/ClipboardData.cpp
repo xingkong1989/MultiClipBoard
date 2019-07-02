@@ -6,7 +6,6 @@ ClipboardData::ClipboardData()
 {
 	DWORD id = 0;
 	m_dwFormat = 0;
-	m_hWnd = NULL;
 	m_lpData = nullptr;
 	m_dwDataSize = 0;
 }
@@ -20,7 +19,6 @@ ClipboardData::~ClipboardData()
 ClipboardData::ClipboardData(const ClipboardData& other)
 {
 	m_dwFormat = other.m_dwFormat;
-	m_hWnd = other.m_hWnd;
 	if (other.m_lpData != nullptr && other.m_dwDataSize > 0)
 	{
 		m_dwDataSize = other.m_dwDataSize;
@@ -31,4 +29,20 @@ ClipboardData::ClipboardData(const ClipboardData& other)
 	{
 		m_lpData = nullptr;
 	}
+}
+
+
+ClipboardData& ClipboardData::operator= (const ClipboardData& other)
+{
+	if (&other != this)
+	{
+		m_dwFormat = other.m_dwFormat;
+		if (other.m_lpData != nullptr && other.m_dwDataSize > 0)
+		{
+			m_dwDataSize = other.m_dwDataSize;
+			m_lpData = malloc(m_dwDataSize);
+			memcpy_s(m_lpData, m_dwDataSize, other.m_lpData, other.m_dwDataSize);
+		}
+	}
+	return *this;
 }

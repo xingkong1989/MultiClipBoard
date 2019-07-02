@@ -3,41 +3,9 @@
 //
 
 #pragma once
+#include "DataWnd.h"
 #include "ClipboardData.h"
 
-typedef CArray<ClipboardData> ClipboardArray;
-
-class ClipboardArrayWnd
-{
-public:
-	ClipboardArrayWnd()
-	{
-		m_wnd = NULL;
-		m_id = 0;
-	}
-	DWORD m_id;
-	CWnd * m_wnd;
-	ClipboardArray m_clipboardArray;
-
-	BOOL operator == (ClipboardArrayWnd data)
-	{
-		return m_id == data.m_id;
-	}
-
-	ClipboardArrayWnd& operator = (const ClipboardArrayWnd& other)
-	{
-		if (other.m_id != m_id)
-		{
-			for (size_t i = 0; i < other.m_clipboardArray.GetSize(); i++)
-			{
-				m_clipboardArray.Add(other.m_clipboardArray.GetAt(i));
-			}
-			m_id = other.m_id;
-		}
-
-		return *this;
-	}
-};
 
 // CMultiClipBoardDlg 对话框
 class CMultiClipBoardDlg : public CDialogEx
@@ -80,31 +48,6 @@ protected:
 	afx_msg void OnMenuQuit();
 	DECLARE_MESSAGE_MAP()
 	
-
-	/**
-	@function:	在窗口上绘制ClipboardList中的数据
-
-	@param clipboardList	剪切板数据链表
-	@param pDc				为绘制目标句柄dc句柄
-	@param rect				矩形框大小，传入矩形框的大小，并且返回实际所用的大小
-	同DrawClipboardData 的 第三个参数
-
-	@return		返回成功或者失败
-	*/
-	BOOL DrawClipboardArray(const ClipboardArrayWnd& clipboardArrayWnd, CDC* pDc, CRect &rect);
-
-
-	/**
-		@function:	绘制一个ClipboardData中的数据
-
-		@param clipboardData	数据内容
-		@param pDc				为绘制的目标dc句柄，可以为空
-		@param rect				矩形框大小，传入矩形框的大小，并且返回实际所用的大小
-
-		@return		返回成功或者失败
-	*/
-	BOOL DrawClipboardData(const ClipboardData& clipboardData, CDC* pDc, _Inout_  CRect &rect);
-
 	
 	/**
 		@function:	根据屏幕大小及需要绘制的矩形框数量计算出矩形框的大小
@@ -128,6 +71,15 @@ protected:
 private:
 	virtual BOOL PreTranslateMessage(MSG* pMsg);
 
+	// 分配一个新的窗口，并且添加到列表
+	BOOL AllocNewWnd(ClipboardWnd& clipboardWnd);
+
+	// 是否一个窗口
+	BOOL FreeWnd(DWORD wndId);
+
+	// 调整窗口的布局
+	BOOL AdjustWndLayout();
+
 	NOTIFYICONDATAW m_notifyData;				// 系统托盘数据
 
 	bool m_isPressedControl;					// ctrl 键是否按下
@@ -143,8 +95,8 @@ private:
 	DWORD m_rectWidth;							// 绘图的矩形框宽度
 	DWORD m_rectPadding;						// 矩形框周围间距
 
-	CList<ClipboardArrayWnd> m_clipboardList;	// 剪切板数据链表
-	ClipboardArrayWnd m_curClipboardArrayData;	// 当前选中的剪切板数据
+	CList<ClipboardWnd*> m_clipboardWndList;	// 剪切板数据链表
+	ClipboardWnd* m_curClipboardWnd;	// 当前选中的剪切板数据
 
 	CString m_sInvalidChar;						// 绘制文字时不现实的字符
 
@@ -155,7 +107,6 @@ private:
 	COLORREF m_frameColor;						// 矩形框的边框色
 	int m_frameWidth;							// 矩形框的边框宽度
 
-	COLORREF m_textColor;						// 文字的颜色
-	int m_textWidth;							// 文字的字体宽度
-	int m_textSize;								// 文字的大小
+public:
+	afx_msg void OnMouseMove(UINT nFlags, CPoint point);
 };

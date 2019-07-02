@@ -7,7 +7,6 @@
 #include "MultiClipBoard.h"
 #include "MultiClipBoardDlg.h"
 #include "afxdialogex.h"
-#include "DataWnd.h"
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -34,6 +33,8 @@ CMultiClipBoardDlg::CMultiClipBoardDlg(CWnd* pParent /*=NULL*/)
 	m_rectPadding = 20;
 	m_isFirstShow = true;
 	m_bSwitchNext = true;
+	m_curClipboardWnd = NULL;
+
 	ZeroMemory(&m_notifyData, sizeof(m_notifyData));
 
 	m_sInvalidChar = L"\r\n\t";
@@ -65,6 +66,7 @@ BEGIN_MESSAGE_MAP(CMultiClipBoardDlg, CDialogEx)
 	ON_WM_WINDOWPOSCHANGING()
 	ON_WM_TIMER()
 	ON_COMMAND(IDM_TRAY_QUIT, &CMultiClipBoardDlg::OnMenuQuit)
+	ON_WM_MOUSEMOVE()
 END_MESSAGE_MAP()
 
 
@@ -110,11 +112,7 @@ BOOL CMultiClipBoardDlg::OnInitDialog()
 	m_rectBKColor = RGB(20, 240, 240);
 	m_frameColor = RGB(240, 240, 240);
 	m_frameWidth = 4;
-
-	m_textColor = RGB(0, 240, 240);
-	m_textWidth = 1;
-	m_textSize = 20;
-
+	
 	return TRUE;  // 除非将焦点设置到控件，否则返回 TRUE
 }
 
@@ -144,58 +142,13 @@ void CMultiClipBoardDlg::OnPaint()
 	{
 		// 绘制背景
 		RECT bkGroundRect;
-		CBrush bkBrush, *oldBrush = NULL;
+		CBrush *oldBrush = NULL, bkBrush;
 		GetClientRect(&bkGroundRect);
 		bkBrush.CreateSolidBrush(m_bkColor);
+		dc.SetBkMode(TRANSPARENT);
 		dc.FillRect(&bkGroundRect, &bkBrush);
 
-		CRect averageRectSize;							// 矩形框平均尺寸
-		ClipboardArrayWnd* pClipboardArrayWnd = nullptr;		// 每组剪切板数据
-		int dwListCount = m_clipboardList.GetSize();	// 剪切板数组的个数
-		POSITION arraryPosition = m_clipboardList.GetHeadPosition();
-
-		// 更改背景颜色
-		CBrush brush;
-		brush.CreateSolidBrush(m_rectBKColor);
-		oldBrush = dc.SelectObject(&brush);
-		dc.SetBkMode(TRANSPARENT);
-
-		int iEachLineCount = CalculateDrawRectSize(dwListCount, averageRectSize);
-		for (int i = 0; i < dwListCount && arraryPosition; i++)
-		{
-			HDC hCompatibleDc = CreateCompatibleDC(dc.m_hDC);
-			HBITMAP hBitmap = CreateCompatibleBitmap(hCompatibleDc, 0, 0);
-
-			// 调整 tmpRect的位置
-			int x = 0, y = 0;
-			CRect destRect = averageRectSize;
-
-			x = i % iEachLineCount * (RectPadding + averageRectSize.Width()) + RectPadding;
-			y = i / iEachLineCount * (RectPadding + averageRectSize.Height()) + RectPadding;
-			destRect.left += x;
-			destRect.right += x;
-			destRect.top += y; (RectPadding + averageRectSize.Height()) + RectPadding;
-			destRect.bottom += y;
-
-			pClipboardArrayWnd = &m_clipboardList.GetNext(arraryPosition);
-
-			// 绘制边框
-			if (pClipboardArrayWnd->m_id == m_curClipboardArrayData.m_id)
-			{
-				CPen pen, *oldPen = NULL;
-				pen.CreatePen(PS_DASH, m_frameWidth, m_frameColor);
-				oldPen = dc.SelectObject(&pen);
-				dc.Rectangle(&destRect);
-				dc.SelectObject(oldPen);
-			}
-
-			destRect.DeflateRect(m_frameWidth, m_frameWidth);
-			dc.FillRect(destRect, &brush);
-
-			DrawClipboardArray(*pClipboardArrayWnd, &dc, destRect);
-		}
-
-		//CDialogEx::OnPaint();
+		CDialogEx::OnPaint();
 	}
 }
 
@@ -333,11 +286,106 @@ BOOL CMultiClipBoardDlg::PreTranslateMessage(MSG* pMsg)
 	return CDialogEx::PreTranslateMessage(pMsg);
 }
 
+// 分配id, 将数据保存到数据链表中
+BOOL CMultiClipBoardDlg::AllocNewWnd(ClipboardWnd & clipboardWnd)
+{
+	BOOL ret = FALSE;
+	DWORD dwListSize = m_clipboardWndList.GetSize() + 1;
+	ClipboardWnd* pClipboardWnd = NULL;
+
+	// 查找未分配的id
+	DWORD i = 0;
+	for (; i < dwListSize; i++)
+	{
+		BOOL find = FALSE;
+		POSITION position = m_clipboardWndList.GetHeadPosition();
+		for (; position != nullptr;)
+		{
+			pClipboardWnd = m_clipboardWndList.GetNext(position);
+			if (pClipboardWnd->m_id == i)
+			{
+				find = TRUE;
+				ret = FALSE;
+				break;
+			}
+		}
+		if (find == FALSE)
+		{
+			// 分配id，并且创建新的窗口，添加到list
+			clipboardWnd.m_id = i;
+			pClipboardWnd = new ClipboardWnd();
+			CRect rc(0, 0, 100, 100);
+			if (pClipboardWnd->Create(_T("static"), NULL, WS_CHILD | WS_VISIBLE | WS_THICKFRAME, rc, this, 0, NULL))
+			{
+				m_clipboardWndList.AddTail(pClipboardWnd);
+				*pClipboardWnd = clipboardWnd;
+				if (m_curClipboardWnd == NULL)
+				{
+					m_curClipboardWnd = pClipboardWnd;
+				}
+				ret = TRUE;
+			}
+			else
+			{
+				delete pClipboardWnd;
+				ret = FALSE;
+			}
+			break;
+		}
+	}
+	return ret;
+}
+
+BOOL CMultiClipBoardDlg::FreeWnd(DWORD wndId)
+{
+	BOOL ret = FALSE;
+
+	return ret;
+}
+
+
+BOOL CMultiClipBoardDlg::AdjustWndLayout()
+{
+	BOOL ret = FALSE;
+
+	// 调整矩形框的位置
+	CRect averageRectSize;							// 矩形框平均尺寸
+	ClipboardWnd* pClipboardWnd = NULL;						// 每组剪切板数据
+	DWORD dwListSize = m_clipboardWndList.GetSize();
+	POSITION arrayPosition = m_clipboardWndList.GetHeadPosition();
+
+	// 获取每行的个数
+	int eachLineCount = CalculateDrawRectSize(dwListSize, averageRectSize);
+
+	for (DWORD i = 0; i < dwListSize && arrayPosition; i++)
+	{
+		// 调整 tmpRect的位置
+		int x = 0, y = 0;
+		CRect destRect = averageRectSize;
+		pClipboardWnd = m_clipboardWndList.GetNext(arrayPosition);
+
+		x = i % eachLineCount * (RectPadding + averageRectSize.Width()) + RectPadding;
+		y = i / eachLineCount * (RectPadding + averageRectSize.Height()) + RectPadding;
+		destRect.left += x;
+		destRect.right += x;
+		destRect.top += y;
+		destRect.bottom += y;
+
+			// 设置新窗口的位置
+		pClipboardWnd->MoveWindow(&destRect, FALSE);
+	}
+
+	return ret;
+}
+
+/*
+	响应切换剪切板视图的消息
+*/
 LRESULT CMultiClipBoardDlg::OnSwitchClipboard(WPARAM wParam, LPARAM lParam)
 {
-	POSITION position = m_clipboardList.GetHeadPosition();
+	POSITION position = m_clipboardWndList.GetHeadPosition();
 	POSITION headPos = position;
-	ClipboardArrayWnd* clipboardData = nullptr;
+	ClipboardWnd* clipboardData = nullptr;
 	bool bFind = false;
 
 	if (!m_bSwitchNext)
@@ -349,18 +397,18 @@ LRESULT CMultiClipBoardDlg::OnSwitchClipboard(WPARAM wParam, LPARAM lParam)
 
 	for (; position != nullptr; )
 	{
-		clipboardData = &m_clipboardList.GetNext(position);
+		clipboardData = m_clipboardWndList.GetNext(position);
 
-		if (m_curClipboardArrayData.m_id == clipboardData->m_id)
+		if (m_curClipboardWnd->m_id == clipboardData->m_id)
 		{
 			// 查找后一个
 			if (!wParam)
 			{
 				if (position == nullptr)
 				{
-					position = m_clipboardList.GetHeadPosition();
+					position = m_clipboardWndList.GetHeadPosition();
 				}
-				m_curClipboardArrayData = m_clipboardList.GetNext(position);
+				m_curClipboardWnd = m_clipboardWndList.GetNext(position);
 				bFind = true;
 				break;
 			}
@@ -369,18 +417,19 @@ LRESULT CMultiClipBoardDlg::OnSwitchClipboard(WPARAM wParam, LPARAM lParam)
 			{
 				if (position == nullptr)
 				{
-					position = m_clipboardList.GetTailPosition();
+					position = m_clipboardWndList.GetTailPosition();
 				}
 				else
 				{
-					m_clipboardList.GetPrev(position);
+					m_clipboardWndList.GetPrev(position);
 				}
-				m_clipboardList.GetPrev(position);
+				m_clipboardWndList.GetPrev(position);
 				if (position == nullptr)
 				{
-					position = m_clipboardList.GetTailPosition();
+					assert(TRUE);
+					position = m_clipboardWndList.GetTailPosition();
 				}
-				m_curClipboardArrayData = m_clipboardList.GetPrev(position);
+				m_curClipboardWnd = m_clipboardWndList.GetPrev(position);
 
 				bFind = true;
 				break;
@@ -390,7 +439,7 @@ LRESULT CMultiClipBoardDlg::OnSwitchClipboard(WPARAM wParam, LPARAM lParam)
 
 	if (bFind)
 	{
-		WCHAR wszFormatName[MAX_PATH] = { 0 };
+		WCHAR clipboardFormatName[MAX_PATH] = { 0 };
 		m_openClipboardLock = true;
 		BOOL bOperate = OpenClipboard();
 		if (!bOperate)
@@ -398,17 +447,17 @@ LRESULT CMultiClipBoardDlg::OnSwitchClipboard(WPARAM wParam, LPARAM lParam)
 			OutPutString(L"OnDrawClipboard :OpenClipboard error = %d", GetLastError());
 		}
 		EmptyClipboard();
-		for (int i = 0; i < m_curClipboardArrayData.m_clipboardArray.GetSize(); i++)
+		for (int i = 0; i < m_curClipboardWnd->m_clipboardArray.GetSize(); i++)
 		{
-			ClipboardData tmpData = m_curClipboardArrayData.m_clipboardArray.GetAt(i);
+			ClipboardData tmpData = m_curClipboardWnd->m_clipboardArray.GetAt(i);
 			HGLOBAL hData = GlobalAlloc(GHND, tmpData.m_dwDataSize);
 			LPVOID pData = GlobalLock(hData);
 			memcpy_s(pData, tmpData.m_dwDataSize, tmpData.m_lpData, tmpData.m_dwDataSize);
 			GlobalUnlock(hData);
 			SetClipboardData(tmpData.m_dwFormat, hData);
 
-			GetClipboardFormatName(tmpData.m_dwFormat, wszFormatName, MAX_PATH);
-			OutPutString(L"format = %x, name = %s", tmpData.m_dwFormat, wszFormatName);
+			GetClipboardFormatName(tmpData.m_dwFormat, clipboardFormatName, MAX_PATH);
+			OutPutString(L"format = %x, name = %s", tmpData.m_dwFormat, clipboardFormatName);
 		}
 		CloseClipboard();
 		Sleep(10);
@@ -441,13 +490,11 @@ void CMultiClipBoardDlg::OnDrawClipboard()
 {
 	CDialogEx::OnDrawClipboard();
 	if (m_openClipboardLock)
-	{
+	{	// 自己赋值
 		return;
 	}
 
 	// 接收到消息，将数据保存到当前的数据类
-	ClipboardArrayWnd clipboardArrayWnd;
-
 	BOOL bOperate = OpenClipboard();
 	if (!bOperate)
 	{
@@ -455,9 +502,12 @@ void CMultiClipBoardDlg::OnDrawClipboard()
 		return;
 	}
 
-	DWORD dwEnumFormat = 0;
-	WCHAR wszFormatName[MAX_PATH] = { 0 };
+	// 枚举剪切板中的数据保存下来
 	DWORD dwCount = 0;
+	DWORD dwEnumFormat = 0;
+	ClipboardWnd clipboardWnd;
+	WCHAR formatName[MAX_PATH] = { 0 };
+
 	while (TRUE)
 	{
 		dwEnumFormat = EnumClipboardFormats(dwEnumFormat);
@@ -465,8 +515,8 @@ void CMultiClipBoardDlg::OnDrawClipboard()
 		{
 			break;
 		}
-		GetClipboardFormatName(dwEnumFormat, wszFormatName, MAX_PATH);
-		OutPutString(L"format = %x, name = %s", dwEnumFormat, wszFormatName);
+		GetClipboardFormatName(dwEnumFormat, formatName, MAX_PATH);
+		OutPutString(L"[%s] format = %x, name = %s", __FUNCTIONW__, dwEnumFormat, formatName);
 
 		HGLOBAL hData = GetClipboardData(dwEnumFormat);
 		if (hData)
@@ -474,285 +524,39 @@ void CMultiClipBoardDlg::OnDrawClipboard()
 			DWORD dwSize = GlobalSize(hData);
 			if (dwSize > 0)
 			{
-				ClipboardData tmp, *pClipboardData = NULL;
 				int index = 0;
-				// 先添加到数组里，避免重复分配内存
-				index = clipboardArrayWnd.m_clipboardArray.Add(tmp);
-				if (pClipboardData = &clipboardArrayWnd.m_clipboardArray.GetAt(index))
+				ClipboardData tmp;
+				tmp.m_dwFormat = dwEnumFormat;
+				tmp.m_dwDataSize = dwSize;
+				LPVOID pData = GlobalLock(hData);
+				if (pData)
 				{
-					pClipboardData->m_dwFormat = dwEnumFormat;
-					pClipboardData->m_dwDataSize = dwSize;
-					LPVOID pData = GlobalLock(hData);
-					if (pData)
-					{
-						pClipboardData->m_lpData = malloc(dwSize);
-						memcpy_s(pClipboardData->m_lpData, dwSize, pData, dwSize);
-
-						GlobalUnlock(hData);
-					}
+					tmp.m_lpData = malloc(dwSize);
+					memcpy_s(tmp.m_lpData, dwSize, pData, dwSize);
+					GlobalUnlock(hData);
 				}
-				dwCount++;
+				index = clipboardWnd.m_clipboardArray.Add(tmp);
 			}
 		}
 	}
 	CloseClipboard();
 
-	if (clipboardArrayWnd.m_clipboardArray.GetSize() == 0)
-	{
+	// 存到链表里，并且调整布局
+	if (clipboardWnd.m_clipboardArray.GetSize() == 0)
+	{	// 没有数据
 		return;
 	}
-
-	// 将数据保存到数据链表中，并且分配id
-	POSITION position = m_clipboardList.GetHeadPosition();
-	DWORD dwListSize = m_clipboardList.GetSize();
-	ClipboardArrayWnd* pClipboardArrayWnd = NULL;
-
-	// 分配一个内存用来查找哪个id没有分配
-	BYTE *bArrFlag = new BYTE[dwListSize + 1];
-	if (bArrFlag)
+	else
 	{
-		memset(bArrFlag, 1, dwListSize + 1);
-
-		for (; position != nullptr; )
+		if (AllocNewWnd(clipboardWnd))
 		{
-			pClipboardArrayWnd = &m_clipboardList.GetNext(position);
-			bArrFlag[pClipboardArrayWnd->m_id] = 0;
+			AdjustWndLayout();
 		}
-
-		clipboardArrayWnd.m_id = dwListSize;
-		for (DWORD i = 0; i < dwListSize; i++)
-		{
-			if (bArrFlag[i] == 1)
-			{
-				// 找到一个id
-				clipboardArrayWnd.m_id = i;
-				break;
-			}
-		}
-		
-		delete[] bArrFlag;
-	}
-	
-	CRect averageRectSize;							// 矩形框平均尺寸
-	ClipboardArrayWnd* pClipboardArrayWnd = nullptr;		// 每组剪切板数据
-	int listCount = m_clipboardList.GetSize();	// 剪切板数组的个数
-	POSITION arraryPosition = m_clipboardList.GetHeadPosition();
-
-	int eachLineCount = CalculateDrawRectSize(listCount, averageRectSize);
-	for (int i = 0; i < listCount && arraryPosition; i++)
-	{
-		// 调整 tmpRect的位置
-		int x = 0, y = 0;
-		CRect destRect = averageRectSize;
-
-		x = i % eachLineCount * (RectPadding + averageRectSize.Width()) + RectPadding;
-		y = i / eachLineCount * (RectPadding + averageRectSize.Height()) + RectPadding;
-		destRect.left += x;
-		destRect.right += x;
-		destRect.top += y; (RectPadding + averageRectSize.Height()) + RectPadding;
-		destRect.bottom += y;
-
-		if ((clipboardArrayWnd.m_id == pClipboardArrayWnd->m_id)
-			&& clipboardArrayWnd.m_wnd == NULL)
-		{
-			// 创建新的窗口
-			CDataWnd* dataWnd = new CDataWnd();
-			if (dataWnd->Create(_T("static"), NULL, WS_CHILD | WS_VISIBLE | WS_THICKFRAME, &destRect, this, 0, NULL))
-			{
-				clipboardArrayWnd.m_wnd = dataWnd;
-				m_clipboardList.AddTail(clipboardArrayWnd);
-			}
-		}
-		else
-		{
-			// 设置新窗口的位置
-			pClipboardArrayWnd->m_wnd->MoveWindow(&destRect, FALSE);
-		}
-
-		pClipboardArrayWnd = &m_clipboardList.GetNext(arraryPosition);
 	}
 
 	//CDialogEx::OnPaint();
 }
 
-
-BOOL CMultiClipBoardDlg::DrawClipboardData(const ClipboardData& clipboardData, CDC* pDc, _Inout_  CRect &rect)
-{
-	BOOL bSuccess = FALSE;
-	wchar_t* wzText = nullptr;
-
-	do
-	{
-		switch (clipboardData.m_dwFormat)
-		{
-			// 文本格式
-		case CF_TEXT:
-		case CF_OEMTEXT:
-		case CF_UNICODETEXT:
-		{
-			int cvalid = 0;
-			wzText = new wchar_t[clipboardData.m_dwDataSize + 1];
-			if (wzText)
-			{
-				wmemset(wzText, 0, clipboardData.m_dwDataSize + 1);
-				if (clipboardData.m_dwFormat == CF_TEXT || clipboardData.m_dwFormat == CF_OEMTEXT)
-				{
-					MultiByteToWideChar(CP_ACP, 0, (char*)clipboardData.m_lpData, clipboardData.m_dwDataSize, wzText, clipboardData.m_dwDataSize + 1);
-				}
-				else
-				{
-					wmemcpy_s(wzText, clipboardData.m_dwDataSize + 1, (wchar_t*)clipboardData.m_lpData, clipboardData.m_dwDataSize);
-				}
-
-				CPen pen;
-				pen.CreatePen(PS_SOLID, 1, m_textColor);
-				HGDIOBJ hOldObj = NULL;
-				hOldObj = pDc->SelectObject(pen.m_hObject);
-				DrawClipboardText(wzText, pDc, &rect, m_sInvalidChar);
-				pDc->SelectObject(hOldObj);
-				delete[] wzText;
-			}
-		}
-		break;
-
-		// 位图句柄(HBITMAP)
-		case CF_BITMAP:
-		{
-			HBITMAP hTmpBitmap = NULL;
-			hTmpBitmap = (HBITMAP)clipboardData.m_lpData;
-			DrawBitmap(pDc, hTmpBitmap, &rect);
-		}
-		break;
-
-		// BITMAPINFO 结构体信息 (似乎不能绘制)
-		case CF_DIB:
-		{
-			BITMAPINFO* pBitmapInfo = NULL;
-			pBitmapInfo = (PBITMAPINFO)clipboardData.m_lpData;
-			if (pBitmapInfo->bmiHeader.biSize != sizeof(BITMAPINFOHEADER))
-			{
-				break;
-			}
-
-		}
-		break;
-
-		// BITMAPV5HEADER 结构体信息 (似乎不能绘制)
-		case CF_DIBV5:
-		{
-			PBITMAPV5HEADER pDIBV5 = NULL;
-			pDIBV5 = (PBITMAPV5HEADER)clipboardData.m_lpData;
-			if (pDIBV5->bV5Size != sizeof(BITMAPV5HEADER))
-			{
-				break;
-			}
-		}
-		break;
-
-		// 增强图元文件句柄(HENHMETAFILE)
-		case CF_ENHMETAFILE:
-		{
-			WCHAR wzDescription[MAX_PATH] = { 0 };
-			HENHMETAFILE hEnMetafile = NULL;
-			hEnMetafile = (HENHMETAFILE)clipboardData.m_lpData;
-			if (hEnMetafile == NULL)
-			{
-				break;
-			}
-			GetEnhMetaFileDescriptionW(hEnMetafile, MAX_PATH, wzDescription);
-			PlayEnhMetaFile(pDc->m_hDC, hEnMetafile, &rect);
-			OutPutString(L"图元文件描述：%s", wzDescription);
-		}
-		break;
-
-		// 拖拽文件句柄(HDROP)
-		case CF_HDROP:
-		{
-			HDROP hDrop = NULL;
-			hDrop = (HDROP)clipboardData.m_lpData;
-			if (hDrop == NULL)
-			{
-				break;
-			}
-
-			CString sShowString = L"拷贝文件：";
-			WCHAR wzFilePath[MAX_PATH] = { 0 };
-			int nCount = DragQueryFileW(hDrop, 0xFFFFFFFF, NULL, 0);
-			for (int i = 0; i < nCount; i++)
-			{
-				if (DragQueryFileW(hDrop, i, wzFilePath, MAX_PATH) > 0)
-				{
-					sShowString.Append(wzFilePath);
-					sShowString.Append(L"\r\n");
-				}
-			}
-
-			DrawClipboardText(sShowString.GetBuffer(), pDc, &rect, m_sInvalidChar);
-		}
-		break;
-
-		// 图元图片的句柄
-		case CF_METAFILEPICT:
-		{
-
-		}
-		break;
-
-		// 比波形音频更复杂的音频数据
-		case CF_RIFF:
-		{
-
-		}
-		break;
-
-		// 微软符号链接格式
-		case CF_SYLK:
-		{
-
-		}
-		break;
-
-		// 标签图片文件
-		case CF_TIFF:
-		{
-
-		}
-		break;
-
-		// 标准的音频数据
-		case CF_WAVE:
-		{
-
-		}
-		break;
-
-		default:
-			break;
-		}
-
-	} while (FALSE);
-
-	return bSuccess;
-}
-
-
-BOOL CMultiClipBoardDlg::DrawClipboardArray(const ClipboardArrayWnd& clipboardArrayWnd, CDC* pDc, CRect &rect)
-{
-	int dwCount = clipboardArrayWnd.m_clipboardArray.GetSize();
-	const ClipboardData* pData = NULL;
-
-	for (int i = 0; i < dwCount; i++)
-	{
-		pData = &clipboardArrayWnd.m_clipboardArray.GetAt(i);
-
-		if (DrawClipboardData(*pData, pDc, rect))
-		{
-			return TRUE;
-		}
-	}
-
-	return FALSE;
-}
 
 /**
 	选取屏幕上可供显示的范围。
@@ -790,6 +594,11 @@ int CMultiClipBoardDlg::CalculateDrawRectSize(const DWORD dwCount, _Out_ CRect &
 	do
 	{
 		if (RectMaxWidth < RectMinWidth || RectMaxHeight < RectMinHeight)
+		{
+			break;
+		}
+
+		if (iMaxCountPerLine <= 0)
 		{
 			break;
 		}
@@ -836,7 +645,7 @@ BOOL CMultiClipBoardDlg::CalculateWindow(CRect &rect)
 {
 	BOOL bSuccess = FALSE;
 
-	DWORD dwCount = m_clipboardList.GetSize();
+	DWORD dwCount = m_clipboardWndList.GetSize();
 	CRect averageRect;
 	RECT windowRect = { 0 };
 	int x = 0, y = 0;
@@ -905,14 +714,18 @@ void CMultiClipBoardDlg::OnTimer(UINT_PTR nIDEvent)
 		break;
 
 	case ID_TIMER_CHECKFOCUS:
-		if (GetFocus() != this)
+	{
+		DWORD focusProcessId = 0;
+		GetWindowThreadProcessId(::GetFocus(), &focusProcessId);
+		if (GetCurrentProcessId() != focusProcessId)
 		{
 			m_isPressedControl = false;
 			m_isPressedShift = false;
 			ShowWindow(SW_HIDE);
 			RegisterHotKey(m_hWnd, ID_HOTKEY, MOD_CONTROL, L'Q');
 		}
-		break;
+	}
+	break;
 	default:
 		break;
 	}
@@ -926,3 +739,10 @@ void CMultiClipBoardDlg::OnMenuQuit()
 	OnClose();
 }
 
+
+void CMultiClipBoardDlg::OnMouseMove(UINT nFlags, CPoint point)
+{
+	// TODO: 在此添加消息处理程序代码和/或调用默认值
+
+	CDialogEx::OnMouseMove(nFlags, point);
+}
