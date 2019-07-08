@@ -9,6 +9,8 @@ ClipboardData::ClipboardData()
 	m_lpData = nullptr;
 	m_dwDataSize = 0;
 }
+
+
 ClipboardData::~ClipboardData()
 {
 	if (m_lpData != nullptr)
@@ -16,6 +18,8 @@ ClipboardData::~ClipboardData()
 		free(m_lpData);
 	}
 }
+
+
 ClipboardData::ClipboardData(const ClipboardData& other)
 {
 	m_dwFormat = other.m_dwFormat;

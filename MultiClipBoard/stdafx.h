@@ -10,7 +10,6 @@
 #endif
 
 #include "targetver.h"
-#include "Config.h"
 
 #define _ATL_CSTRING_EXPLICIT_CONSTRUCTORS      // 某些 CString 构造函数将是显式的
 
@@ -35,11 +34,11 @@
 #include <afxcontrolbars.h>     // 功能区和控件条的 MFC 支持
 
 
-
 #define WM_TRAYNOTIFY WM_USER + 100
-#define WM_SWITCHCLIPBOARD WM_USER + 101
+#define WM_SWITCHCLIPBOARD WM_USER + 101		
 #define WM_DESTORYCLIPBOARDWND WM_USER + 102
-#define WM_SETCLIPBOARDWNDFOCUS WM_USER + 103
+#define WM_CLIPBOARDSELECTED WM_USER + 103
+#define WM_SWITCHALPHACHANGED WM_USER + 104
 
 
 #define _FREE_DISTRIBUTE
@@ -59,4 +58,5 @@
 #include <afxwin.h>
 #include <WinSvc.h>
 #include "Include\YxCmnLib\YxCommonQuoteHeader.h"
+#include <afxcontrolbars.h>
 void OutPutString(wchar_t* wszFormat, ...);

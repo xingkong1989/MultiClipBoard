@@ -3,7 +3,7 @@
 //
 
 #pragma once
-#include "DataWnd.h"
+#include "ClipboardWnd.h"
 #include "ClipboardData.h"
 
 
@@ -30,6 +30,9 @@ public:
 	afx_msg void OnClipboardUpdate();
 	afx_msg void OnDestroyClipboard();
 	afx_msg void OnDrawClipboard();
+	afx_msg void OnTrayQuit();
+	afx_msg void OnTrayConfig();
+	afx_msg void OnTrayAbout();
 
 // 实现
 protected:
@@ -40,12 +43,25 @@ protected:
 	afx_msg void OnPaint();
 	afx_msg HCURSOR OnQueryDragIcon();
 	afx_msg LRESULT OnTraynotify(WPARAM wParam, LPARAM lParam);
+
+	// 剪切板对话框切换
 	afx_msg LRESULT OnSwitchClipboard(WPARAM wParam, LPARAM lParam);
 	afx_msg BOOL OnNcCreate(LPCREATESTRUCT lpCreateStruct);
 	afx_msg BOOL OnEraseBkgnd(CDC* pDC);
 	afx_msg void OnWindowPosChanging(WINDOWPOS* lpwndpos);
 	afx_msg void OnTimer(UINT_PTR nIDEvent);
-	afx_msg void OnMenuQuit();
+
+	// 销毁剪切板对话框，查找内部待销毁链表
+	void DestoryClipboardWnd();
+
+	// 消息响应函数， 将剪切板对话框id添加到链表
+	afx_msg LRESULT OnDestoryClipboardWnd(WPARAM wParam, LPARAM lParam);
+
+	// 子窗口发送消息，告知选中的剪切板对话框
+	afx_msg LRESULT OnClipboardSelected(WPARAM wParam, LPARAM lParam);
+
+	// 消息响应函数，Alpha透明度改变
+	afx_msg LRESULT OnSwitchAlphaChanged(WPARAM wParam, LPARAM lParam);
 	DECLARE_MESSAGE_MAP()
 	
 	
@@ -57,7 +73,7 @@ protected:
 
 		@return		返回每行显示矩形框的个数
 	*/
-	int CalculateDrawRectSize(const DWORD dwCount, _Out_ CRect &rect);
+	int CalculateDrawRectSize(const DWORD dwCount, _Out_ RECT &rect);
 
 	/**
 		@function:	计算显示所有数据所需窗口的大小
@@ -66,7 +82,7 @@ protected:
 
 		@return		返回成功还是失败
 	*/
-	BOOL CalculateWindow(_Out_ CRect &rect);
+	BOOL CalculateWindow(_Out_ RECT &rect);
 
 private:
 	virtual BOOL PreTranslateMessage(MSG* pMsg);
@@ -74,11 +90,23 @@ private:
 	// 分配一个新的窗口，并且添加到列表
 	BOOL AllocNewWnd(ClipboardWnd& clipboardWnd);
 
-	// 是否一个窗口
-	BOOL FreeWnd(DWORD wndId);
-
 	// 调整窗口的布局
 	BOOL AdjustWndLayout();
+
+	// 设置剪切板窗口内容
+	BOOL SetClipboardDataByCurrent();
+
+	// 根据id从链表里面查找
+	ClipboardWnd* FindClipboardWndById(int id);
+
+	/**
+		brief: 剪切板消息命中，通过剪切板位置判断点击的是哪个剪切板
+
+		@param_1: 点的位置
+
+		return： 返回命中的窗口， NULL 表示没有命中
+	*/
+	ClipboardWnd* ClipboardHitTest(POINT &pt);
 
 	NOTIFYICONDATAW m_notifyData;				// 系统托盘数据
 
@@ -87,7 +115,7 @@ private:
 	bool m_isFirstShow;							// 应用程序第一次启动，不显示界面
 	bool m_bSwitchNext;							// 由定时器控制，矩形框是否可用切换到下一个
 
-	bool m_openClipboardLock;					// 当前是否是自己赋值剪切板，此处应该用临界区critical_section
+	bool m_openClipboardLock;					// 当前是否是自己赋值剪切板
 
 	HWND m_hNextClipboardViewer;
 
@@ -96,17 +124,17 @@ private:
 	DWORD m_rectPadding;						// 矩形框周围间距
 
 	CList<ClipboardWnd*> m_clipboardWndList;	// 剪切板数据链表
-	ClipboardWnd* m_curClipboardWnd;	// 当前选中的剪切板数据
+	ClipboardWnd* m_curClipboardWnd;			// 当前选中的剪切板数据
+	ClipboardWnd* m_curMouseClipboardWnd;		// 当前鼠标位置
+	ClipboardWnd* m_curlBtnClickWnd;			// 当前鼠标单击的位置
 
-	CString m_sInvalidChar;						// 绘制文字时不现实的字符
+	CList<DWORD> m_destoryList;					// 需要删除的剪切板数据
 
-	COLORREF m_bkColor;							// 背景颜色
-	int m_nAlpha;								// 窗口透明度
+	CConfig* m_cfg;								// 配置文件
 
-	COLORREF m_rectBKColor;						// 矩形框的背景色
-	COLORREF m_frameColor;						// 矩形框的边框色
-	int m_frameWidth;							// 矩形框的边框宽度
-
+	CMenu m_menu;								// 右键菜单
 public:
-	afx_msg void OnMouseMove(UINT nFlags, CPoint point);
+	afx_msg void OnSetFocus(CWnd* pOldWnd);
+	afx_msg void OnKillFocus(CWnd* pNewWnd);
+	afx_msg void OnTrayPause();
 };

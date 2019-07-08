@@ -36,13 +36,13 @@
     <ClInclude Include="ActiveDialog.h">
       <Filter>头文件</Filter>
     </ClInclude>
-    <ClInclude Include="Config.h">
-      <Filter>头文件</Filter>
-    </ClInclude>
     <ClInclude Include="ClipboardData.h">
       <Filter>头文件</Filter>
     </ClInclude>
-    <ClInclude Include="DataWnd.h">
+    <ClInclude Include="ConfigDlg.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="ClipboardWnd.h">
       <Filter>头文件</Filter>
     </ClInclude>
   </ItemGroup>
@@ -62,7 +62,10 @@
     <ClCompile Include="ClipboardData.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
-    <ClCompile Include="DataWnd.cpp">
+    <ClCompile Include="ConfigDlg.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="ClipboardWnd.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
   </ItemGroup>

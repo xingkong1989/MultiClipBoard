@@ -188,8 +188,8 @@
   <ItemGroup>
     <ClInclude Include="ActiveDialog.h" />
     <ClInclude Include="ClipboardData.h" />
-    <ClInclude Include="Config.h" />
-    <ClInclude Include="DataWnd.h" />
+    <ClInclude Include="ConfigDlg.h" />
+    <ClInclude Include="ClipboardWnd.h" />
     <ClInclude Include="MultiClipBoard.h" />
     <ClInclude Include="MultiClipBoardDlg.h" />
     <ClInclude Include="Resource.h" />
@@ -198,8 +198,9 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="ActiveDialog.cpp" />
+    <ClCompile Include="ConfigDlg.cpp" />
     <ClCompile Include="ClipboardData.cpp" />
-    <ClCompile Include="DataWnd.cpp" />
+    <ClCompile Include="ClipboardWnd.cpp" />
     <ClCompile Include="MultiClipBoard.cpp" />
     <ClCompile Include="MultiClipBoardDlg.cpp" />
     <ClCompile Include="stdafx.cpp">

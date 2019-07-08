@@ -7,6 +7,8 @@
 #include "MultiClipBoard.h"
 #include "MultiClipBoardDlg.h"
 #include "afxdialogex.h"
+#include "ConfigDlg.h"
+#include "ActiveDialog.h"
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -17,6 +19,7 @@
 #define ID_HOTKEY 123
 #define ID_TIMER_INTERVAL 132			// 用来切换选中项
 #define ID_TIMER_CHECKFOCUS 133			// 检查焦点是否离开程序
+#define ID_TIMER_DESTORYCLIPBOARD 134	// 销毁剪切板数据
 
 const int RectPadding = 20;				// 矩形框之间的空白间距
 
@@ -34,10 +37,11 @@ CMultiClipBoardDlg::CMultiClipBoardDlg(CWnd* pParent /*=NULL*/)
 	m_isFirstShow = true;
 	m_bSwitchNext = true;
 	m_curClipboardWnd = NULL;
+	m_curMouseClipboardWnd = NULL;
+	m_curlBtnClickWnd = NULL;
 
 	ZeroMemory(&m_notifyData, sizeof(m_notifyData));
 
-	m_sInvalidChar = L"\r\n\t";
 }
 
 void CMultiClipBoardDlg::DoDataExchange(CDataExchange* pDX)
@@ -65,8 +69,15 @@ BEGIN_MESSAGE_MAP(CMultiClipBoardDlg, CDialogEx)
 	ON_WM_ERASEBKGND()
 	ON_WM_WINDOWPOSCHANGING()
 	ON_WM_TIMER()
-	ON_COMMAND(IDM_TRAY_QUIT, &CMultiClipBoardDlg::OnMenuQuit)
-	ON_WM_MOUSEMOVE()
+	ON_MESSAGE(WM_DESTORYCLIPBOARDWND, &CMultiClipBoardDlg::OnDestoryClipboardWnd)
+	ON_MESSAGE(WM_CLIPBOARDSELECTED, &CMultiClipBoardDlg::OnClipboardSelected)
+	ON_COMMAND(IDM_TRAY_QUIT, &CMultiClipBoardDlg::OnTrayQuit)
+	ON_COMMAND(IDM_TRAY_CONFIG, &CMultiClipBoardDlg::OnTrayConfig)
+	ON_COMMAND(IDM_TRAY_ABOUT, &CMultiClipBoardDlg::OnTrayAbout)
+	ON_WM_SETFOCUS()
+	ON_WM_KILLFOCUS()
+	ON_MESSAGE(WM_SWITCHALPHACHANGED, &CMultiClipBoardDlg::OnSwitchAlphaChanged)
+	ON_COMMAND(IDM_TRAY_PAUSE, &CMultiClipBoardDlg::OnTrayPause)
 END_MESSAGE_MAP()
 
 
@@ -82,6 +93,7 @@ BOOL CMultiClipBoardDlg::OnInitDialog()
 	SetIcon(m_hIcon, FALSE);		// 设置小图标
 	::SetWindowLong(m_hWnd, GWL_EXSTYLE, WS_EX_TOOLWINDOW);
 
+	m_cfg = CConfig::GetInstance();
 
 	// 添加系统托盘	
 	m_notifyData.cbSize = sizeof(NOTIFYICONDATAW);
@@ -92,6 +104,11 @@ BOOL CMultiClipBoardDlg::OnInitDialog()
 	m_notifyData.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
 	wcscpy_s(m_notifyData.szTip, 128, L"云星剪切板正在运行");
 	Shell_NotifyIconW(NIM_ADD, &m_notifyData);
+
+	// 窗口透明设置
+	ULONG wndStype = GetWindowLong(m_hWnd, GWL_EXSTYLE);
+	SetWindowLong(m_hWnd, GWL_EXSTYLE, wndStype | WS_EX_LAYERED);
+	SetLayeredWindowAttributes(0xFFFFFF, m_cfg->m_switchAlpha, LWA_ALPHA);
 
 	// 注册快捷键
 	RegisterHotKey(m_hWnd, ID_HOTKEY, MOD_CONTROL, L'Q');
@@ -105,14 +122,10 @@ BOOL CMultiClipBoardDlg::OnInitDialog()
 	}
 
 	// 定时检测是窗口是否有焦点
-	SetTimer(ID_TIMER_CHECKFOCUS, 100, NULL);
-	m_bkColor = RGB(150, 150, 150);
-	m_nAlpha = 50;
+	SetTimer(ID_TIMER_CHECKFOCUS, 200, NULL);
 
-	m_rectBKColor = RGB(20, 240, 240);
-	m_frameColor = RGB(240, 240, 240);
-	m_frameWidth = 4;
-	
+	m_menu.LoadMenuW(MAKEINTRESOURCE(IDR_TRAY_MENU));
+
 	return TRUE;  // 除非将焦点设置到控件，否则返回 TRUE
 }
 
@@ -142,9 +155,9 @@ void CMultiClipBoardDlg::OnPaint()
 	{
 		// 绘制背景
 		RECT bkGroundRect;
-		CBrush *oldBrush = NULL, bkBrush;
+		CBrush bkBrush;
 		GetClientRect(&bkGroundRect);
-		bkBrush.CreateSolidBrush(m_bkColor);
+		bkBrush.CreateSolidBrush(m_cfg->m_switchColor);
 		dc.SetBkMode(TRANSPARENT);
 		dc.FillRect(&bkGroundRect, &bkBrush);
 
@@ -172,9 +185,9 @@ void CMultiClipBoardDlg::OnHotKey(UINT nHotKeyId, UINT nKey1, UINT nKey2)
 		if (CalculateWindow(clientRect))
 		{
 			MoveWindow(&clientRect);
-			// SetWindowPos(NULL, clientRect.left, clientRect.top, clientRect.right, clientRect.bottom,
-			//	SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_SHOWWINDOW);
 			ShowWindow(SW_NORMAL);
+
+			// 收到快捷键消息后取消注册快捷键
 			UnregisterHotKey(m_hWnd, ID_HOTKEY);
 		}
 	}
@@ -196,6 +209,8 @@ void CMultiClipBoardDlg::OnShowWindow(BOOL bShow, UINT nStatus)
 
 void CMultiClipBoardDlg::OnClose()
 {
+	m_menu.Detach();
+	m_menu.DestroyMenu();
 	ChangeClipboardChain(m_hNextClipboardViewer);
 	Shell_NotifyIcon(NIM_DELETE, &m_notifyData);
 	UnregisterHotKey(m_hWnd, ID_HOTKEY);
@@ -222,16 +237,12 @@ afx_msg LRESULT CMultiClipBoardDlg::OnTraynotify(WPARAM wParam, LPARAM lParam)
 	else if (lParam == WM_RBUTTONDOWN)
 	{
 		POINT point;
-		CMenu menu;
 
 		GetCursorPos(&point);
-		menu.LoadMenuW(MAKEINTRESOURCE(IDR_TRAY_MENU));
-		CMenu* firstMenu = menu.GetSubMenu(0);
+		CMenu* firstMenu = m_menu.GetSubMenu(0);
 
 		SetForegroundWindow();
 		firstMenu->TrackPopupMenu(TPM_LEFTALIGN, point.x, point.y, this);
-		menu.Detach();
-		menu.DestroyMenu();
 	}
 	return 0;
 }
@@ -240,8 +251,9 @@ afx_msg LRESULT CMultiClipBoardDlg::OnTraynotify(WPARAM wParam, LPARAM lParam)
 // 松掉之后则不显示
 BOOL CMultiClipBoardDlg::PreTranslateMessage(MSG* pMsg)
 {
-	if (pMsg->message == WM_KEYUP)				// 按键弹起注册热键
+	switch (pMsg->message)
 	{
+	case WM_KEYUP:
 		if (pMsg->wParam == VK_CONTROL)
 		{
 			m_isPressedControl = false;
@@ -253,9 +265,8 @@ BOOL CMultiClipBoardDlg::PreTranslateMessage(MSG* pMsg)
 		{
 			m_isPressedShift = false;
 		}
-	}
-	else if (pMsg->message == WM_KEYDOWN)
-	{
+		break;
+	case WM_KEYDOWN:
 		if (pMsg->wParam == L'Q')
 		{
 			if (m_isPressedControl == true)
@@ -272,19 +283,105 @@ BOOL CMultiClipBoardDlg::PreTranslateMessage(MSG* pMsg)
 		{
 			m_isPressedControl = true;
 		}
-	}
-	else if (pMsg->message == WM_SETFOCUS)
-	{
+		return TRUE;
+	case WM_SETFOCUS:
 		OutPutString(L"PreTranslateMessage SetFocus");
-	}
-	else if (pMsg->message == WM_KILLFOCUS)		// 失去焦点，无法获得键盘消息，模拟发送CTRL弹起消息
-	{
+		break;
+	case WM_KILLFOCUS:		// 失去焦点，无法获得键盘消息，模拟发送CTRL弹起消息
 		SendMessage(WM_KEYUP, VK_CONTROL, 0xC0000001);
 		OutPutString(L"PreTranslateMessage KillFocus");
+		break;
+	case WM_LBUTTONDOWN:
+	case WM_LBUTTONUP:
+	{	// 如果左键的按下和弹起在子窗口就向下传递
+		ClipboardWnd* wnd = ClipboardHitTest(pMsg->pt);
+		// 改变窗口是否被选中 start
+		if (pMsg->message == WM_LBUTTONUP)
+		{
+			if (wnd == m_curlBtnClickWnd && wnd != NULL)
+			{
+				if (m_curClipboardWnd != m_curlBtnClickWnd)
+				{
+					if (m_curClipboardWnd != NULL)
+					{
+						::SendMessage(m_curClipboardWnd->m_hWnd, WM_SWITCHCLIPBOARD, FALSE, NULL);
+					}
+					m_curClipboardWnd = m_curlBtnClickWnd;
+					::SendMessage(m_curClipboardWnd->m_hWnd, WM_SWITCHCLIPBOARD, TRUE, NULL);
+				}
+			}
+		}
+		if (pMsg->message == WM_LBUTTONDOWN)
+		{
+			m_curlBtnClickWnd = wnd;
+		}
+		// 改变窗口是否被选中 end
+
+		if (wnd)
+		{
+			RECT rect = { 0 };
+			::GetWindowRect(wnd->m_hWnd, &rect);
+			int x = pMsg->pt.x, y = pMsg->pt.y;
+			x -= rect.left;
+			y -= rect.top;
+			::SendMessage(wnd->m_hWnd, pMsg->message, pMsg->wParam, (LPARAM)(x | y << 16));
+			OutPutString(_T("[%s] message = %d, pt.x = %d, pt.y = %d"), __FUNCTIONW__, pMsg->message, pMsg->pt.x, pMsg->pt.y);
+
+			return TRUE;
+		}
+	}
+	break;
+	case WM_MOUSEMOVE:
+	{	// 如果鼠标的移动在子窗口就向下传递
+		ClipboardWnd* wnd = ClipboardHitTest(pMsg->pt);
+		if (wnd != m_curMouseClipboardWnd)
+		{
+			if (m_curMouseClipboardWnd != NULL)
+			{
+				::SendMessage(m_curMouseClipboardWnd->m_hWnd, WM_MOUSEMOVE, pMsg->wParam, (LPARAM)(0xFFFFFFFF));
+			}
+			if (wnd != NULL)
+			{
+				RECT rect = { 0 };
+				::GetWindowRect(wnd->m_hWnd, &rect);
+				int x = pMsg->pt.x, y = pMsg->pt.y;
+				x -= rect.left;
+				y -= rect.top;
+				::SendMessage(wnd->m_hWnd, WM_MOUSEMOVE, pMsg->wParam, (LPARAM)(MAKELONG(x,y)));
+			}
+			m_curMouseClipboardWnd = wnd;
+		}
+		if (wnd)
+		{
+			return TRUE;
+		}
+	}
+	break;
 	}
 
 	return CDialogEx::PreTranslateMessage(pMsg);
 }
+
+
+ClipboardWnd* CMultiClipBoardDlg::ClipboardHitTest(POINT &pt)
+{
+	ClipboardWnd* clipboardWnd = NULL, *tmpWnd = NULL;
+	POSITION pos = m_clipboardWndList.GetHeadPosition();
+
+	while (pos)
+	{
+		RECT rect = { 0 };
+		tmpWnd = m_clipboardWndList.GetNext(pos);
+		::GetWindowRect(tmpWnd->m_hWnd, &rect);
+		if (YunXing::YxWindowUtility::PointInRect(&pt, &rect))
+		{
+			clipboardWnd = tmpWnd;
+			break;
+		}
+	}
+	return clipboardWnd;
+}
+
 
 // 分配id, 将数据保存到数据链表中
 BOOL CMultiClipBoardDlg::AllocNewWnd(ClipboardWnd & clipboardWnd)
@@ -315,13 +412,14 @@ BOOL CMultiClipBoardDlg::AllocNewWnd(ClipboardWnd & clipboardWnd)
 			clipboardWnd.m_id = i;
 			pClipboardWnd = new ClipboardWnd();
 			CRect rc(0, 0, 100, 100);
-			if (pClipboardWnd->Create(_T("static"), NULL, WS_CHILD | WS_VISIBLE | WS_THICKFRAME, rc, this, 0, NULL))
+			if (pClipboardWnd->Create(_T("static"), WS_VISIBLE | WS_SYSMENU | WS_CHILD, rc, this))
 			{
 				m_clipboardWndList.AddTail(pClipboardWnd);
 				*pClipboardWnd = clipboardWnd;
 				if (m_curClipboardWnd == NULL)
 				{
 					m_curClipboardWnd = pClipboardWnd;
+					::SendMessage(m_curClipboardWnd->m_hWnd, WM_SWITCHCLIPBOARD, TRUE, 0);
 				}
 				ret = TRUE;
 			}
@@ -333,13 +431,6 @@ BOOL CMultiClipBoardDlg::AllocNewWnd(ClipboardWnd & clipboardWnd)
 			break;
 		}
 	}
-	return ret;
-}
-
-BOOL CMultiClipBoardDlg::FreeWnd(DWORD wndId)
-{
-	BOOL ret = FALSE;
-
 	return ret;
 }
 
@@ -371,7 +462,7 @@ BOOL CMultiClipBoardDlg::AdjustWndLayout()
 		destRect.top += y;
 		destRect.bottom += y;
 
-			// 设置新窗口的位置
+		// 设置新窗口的位置
 		pClipboardWnd->MoveWindow(&destRect, FALSE);
 	}
 
@@ -385,21 +476,22 @@ LRESULT CMultiClipBoardDlg::OnSwitchClipboard(WPARAM wParam, LPARAM lParam)
 {
 	POSITION position = m_clipboardWndList.GetHeadPosition();
 	POSITION headPos = position;
-	ClipboardWnd* clipboardData = nullptr;
-	bool bFind = false;
+	ClipboardWnd* clipboardWnd = NULL, *tmpWnd = NULL;
 
+	// 避免快速切换
 	if (!m_bSwitchNext)
 	{
 		return S_OK;
 	}
 	m_bSwitchNext = false;
-	SetTimer(ID_TIMER_INTERVAL, 100, NULL);
+	SetTimer(ID_TIMER_INTERVAL, 200, NULL);
+	OutPutString(_T("[%s]"), __FUNCTIONW__);
 
 	for (; position != nullptr; )
 	{
-		clipboardData = m_clipboardWndList.GetNext(position);
+		clipboardWnd = m_clipboardWndList.GetNext(position);
 
-		if (m_curClipboardWnd->m_id == clipboardData->m_id)
+		if (m_curClipboardWnd->m_id == clipboardWnd->m_id)
 		{
 			// 查找后一个
 			if (!wParam)
@@ -408,8 +500,7 @@ LRESULT CMultiClipBoardDlg::OnSwitchClipboard(WPARAM wParam, LPARAM lParam)
 				{
 					position = m_clipboardWndList.GetHeadPosition();
 				}
-				m_curClipboardWnd = m_clipboardWndList.GetNext(position);
-				bFind = true;
+				tmpWnd = m_clipboardWndList.GetNext(position);
 				break;
 			}
 			// 查找前一个
@@ -429,43 +520,65 @@ LRESULT CMultiClipBoardDlg::OnSwitchClipboard(WPARAM wParam, LPARAM lParam)
 					assert(TRUE);
 					position = m_clipboardWndList.GetTailPosition();
 				}
-				m_curClipboardWnd = m_clipboardWndList.GetPrev(position);
-
-				bFind = true;
+				tmpWnd = m_clipboardWndList.GetPrev(position);
 				break;
 			}
 		}
 	}
 
-	if (bFind)
+	if (tmpWnd != NULL && m_curClipboardWnd != tmpWnd)
 	{
-		WCHAR clipboardFormatName[MAX_PATH] = { 0 };
+		if (m_curClipboardWnd != NULL)
+		{
+			::SendMessage(m_curClipboardWnd->m_hWnd, WM_SWITCHCLIPBOARD, FALSE, 0);
+		}
+		::SendMessage(tmpWnd->m_hWnd, WM_SWITCHCLIPBOARD, TRUE, 0);
+		m_curClipboardWnd = tmpWnd;
+		SetClipboardDataByCurrent();
+	}
+
+	return 0;
+}
+
+BOOL CMultiClipBoardDlg::SetClipboardDataByCurrent()
+{
+	BOOL success = FALSE;
+
+	do 
+	{
+		WCHAR clipboardFormat[MAX_PATH] = { 0 };
 		m_openClipboardLock = true;
+
 		BOOL bOperate = OpenClipboard();
 		if (!bOperate)
 		{
 			OutPutString(L"OnDrawClipboard :OpenClipboard error = %d", GetLastError());
 		}
+
+		// 数据拷贝到系统剪切板
 		EmptyClipboard();
 		for (int i = 0; i < m_curClipboardWnd->m_clipboardArray.GetSize(); i++)
 		{
 			ClipboardData tmpData = m_curClipboardWnd->m_clipboardArray.GetAt(i);
 			HGLOBAL hData = GlobalAlloc(GHND, tmpData.m_dwDataSize);
 			LPVOID pData = GlobalLock(hData);
+
 			memcpy_s(pData, tmpData.m_dwDataSize, tmpData.m_lpData, tmpData.m_dwDataSize);
 			GlobalUnlock(hData);
 			SetClipboardData(tmpData.m_dwFormat, hData);
 
-			GetClipboardFormatName(tmpData.m_dwFormat, clipboardFormatName, MAX_PATH);
-			OutPutString(L"format = %x, name = %s", tmpData.m_dwFormat, clipboardFormatName);
+			GetClipboardFormatName(tmpData.m_dwFormat, clipboardFormat, MAX_PATH);
+			OutPutString(L"format = %x, name = %s", tmpData.m_dwFormat, clipboardFormat);
 		}
+
 		CloseClipboard();
 		Sleep(10);
 		m_openClipboardLock = false;
-	}
+	} while (FALSE);
 
-	return 0;
+	return success;
 }
+
 
 void CMultiClipBoardDlg::OnClipboardUpdate()
 {
@@ -550,7 +663,13 @@ void CMultiClipBoardDlg::OnDrawClipboard()
 	{
 		if (AllocNewWnd(clipboardWnd))
 		{
+			RECT clientRect = { 0 };
 			AdjustWndLayout();
+			if (CalculateWindow(clientRect))
+			{
+				MoveWindow(&clientRect);
+				RedrawWindow();
+			}
 		}
 	}
 
@@ -564,30 +683,32 @@ void CMultiClipBoardDlg::OnDrawClipboard()
 			先缩小矩形框的尺寸，再增加行数。如果排不下，先将大小减小，如果再排不下，
 		则增加行数，如此循环。
 */
-int CMultiClipBoardDlg::CalculateDrawRectSize(const DWORD dwCount, _Out_ CRect &rect)
+int CMultiClipBoardDlg::CalculateDrawRectSize(const DWORD dwCount, _Out_ RECT &rect)
 {
 	const int RectMinWidth = 100;			// 显示矩形框的最小宽度
 	const int RectMinHeight = 100;			// 显示矩形框的最小高度
 	const int RectMaxPercent = 80;			// 矩形框加起来最大不超过屏幕的范围 0.8
 	const int RectDecrease = 20;			// 矩形框大小每次递减的像素
 
-	int RectMaxWidth;						// 显示矩形框的最大宽度，最大为显示范围的一半
-	int RectMaxHeight;						// 显示矩形框的最小高度
-
 	int iScreenX = 0, iScreenY = 0;			// 可供显示范围
-	int iWidth = 0, iHeight = 0;
+
+	float screenScale = 0, windowScale = 0;		// 屏幕的长款比，和窗口的长宽比，用来调整是增加行还是减少宽度
 
 	// 可供显示的范围
 	iScreenX = GetSystemMetrics(SM_CXSCREEN) * 4 / 5;
 	iScreenY = GetSystemMetrics(SM_CYSCREEN) * 4 / 5;
 
+	screenScale = (float)iScreenX / iScreenY;
+
+	int RectMaxWidth;						// 显示矩形框的最大宽度，最大为显示范围的一半
+	int RectMaxHeight;						// 显示矩形框的最小高度
 	// 矩形框显示的最大区域
 	RectMaxWidth = iScreenX / 2;
 	RectMaxHeight = iScreenY / 2;
 
 	RectMaxWidth = RectMaxHeight = min(RectMaxWidth, RectMaxHeight);
 
-	rect.SetRectEmpty();
+	ZeroMemory(&rect, sizeof(RECT));
 
 	int iMaxCountPerLine = dwCount;			// 每行最多存放的个数
 	int iLine = 1;							// 显示多少行
@@ -603,23 +724,27 @@ int CMultiClipBoardDlg::CalculateDrawRectSize(const DWORD dwCount, _Out_ CRect &
 			break;
 		}
 
-		// 减小尺寸还是增加行数，1表示减小尺寸
-		BOOL bSwitch = 1;
 		do
 		{
 			// 暂时只判断横向是否够，矩形框的大小和数量递减
-			int iRemainPix = (iScreenX - RectPadding) - (iMaxCountPerLine * (RectPadding + RectMaxWidth));
-			if (iRemainPix < 0)
+			int iRemainPixWidth = (iScreenX - RectPadding) - (iMaxCountPerLine * (RectPadding + RectMaxWidth));
+			int iRemainPixHeight = (iScreenY - RectPadding) - (iLine * (RectPadding + RectMaxHeight));
+			if (iRemainPixWidth < 0 || iRemainPixHeight < 0)
 			{
-				if (bSwitch)
+
+				windowScale = ((float)(RectPadding + RectMaxWidth) * iMaxCountPerLine) / ((RectPadding + RectMaxHeight) * iLine);
+
+				// 减小尺寸还是增加行数
+				if (windowScale < screenScale)
 				{	// 减小尺寸
 					RectMaxWidth -= RectDecrease;
+					RectMaxHeight = RectMaxWidth;
 				}
 				else
 				{	// 每行个数减小
 					iMaxCountPerLine--;
 				}
-				bSwitch ^= 1;
+				iLine = (dwCount + iMaxCountPerLine - 1) / iMaxCountPerLine;
 				if (RectMaxWidth < RectMinWidth || iMaxCountPerLine <= 0)
 				{	// 放不下，退出
 					iLine = 0;
@@ -629,7 +754,10 @@ int CMultiClipBoardDlg::CalculateDrawRectSize(const DWORD dwCount, _Out_ CRect &
 			else
 			{
 				iLine = (dwCount + iMaxCountPerLine - 1) / iMaxCountPerLine;
-				rect.SetRect(0, 0, RectMaxWidth, RectMaxWidth);
+				rect.left = 0;
+				rect.top = 0;
+				rect.right = RectMaxWidth;
+				rect.bottom = RectMaxWidth;
 				break;
 			}
 
@@ -641,7 +769,7 @@ int CMultiClipBoardDlg::CalculateDrawRectSize(const DWORD dwCount, _Out_ CRect &
 }
 
 // 计算显示所有数据所需窗口的大小
-BOOL CMultiClipBoardDlg::CalculateWindow(CRect &rect)
+BOOL CMultiClipBoardDlg::CalculateWindow(RECT &rect)
 {
 	BOOL bSuccess = FALSE;
 
@@ -686,7 +814,6 @@ BOOL CMultiClipBoardDlg::OnNcCreate(LPCREATESTRUCT lpCreateStruct)
 BOOL CMultiClipBoardDlg::OnEraseBkgnd(CDC* pDC)
 {
 	return TRUE;
-
 	//return CDialogEx::OnEraseBkgnd(pDC);
 }
 
@@ -711,21 +838,33 @@ void CMultiClipBoardDlg::OnTimer(UINT_PTR nIDEvent)
 	{
 	case ID_TIMER_INTERVAL:
 		m_bSwitchNext = true;
+		KillTimer(ID_TIMER_INTERVAL);
 		break;
 
 	case ID_TIMER_CHECKFOCUS:
 	{
+		// 判断焦点和ctrl键是否按下，如果没有焦点或者ctrl键没有按下
+		// 则隐藏窗口
 		DWORD focusProcessId = 0;
 		GetWindowThreadProcessId(::GetFocus(), &focusProcessId);
-		if (GetCurrentProcessId() != focusProcessId)
+		if (GetCurrentProcessId() != focusProcessId
+			|| ((GetKeyState(VK_CONTROL) & 0xF0) == 0))
 		{
-			m_isPressedControl = false;
-			m_isPressedShift = false;
-			ShowWindow(SW_HIDE);
-			RegisterHotKey(m_hWnd, ID_HOTKEY, MOD_CONTROL, L'Q');
+			if (m_isPressedControl)
+			{
+				m_isPressedControl = false;
+				m_isPressedShift = false;
+				ShowWindow(SW_HIDE);
+				RegisterHotKey(m_hWnd, ID_HOTKEY, MOD_CONTROL, L'Q');
+			}
 		}
 	}
 	break;
+	case ID_TIMER_DESTORYCLIPBOARD:
+	{
+		KillTimer(ID_TIMER_DESTORYCLIPBOARD);
+		DestoryClipboardWnd();
+	}
 	default:
 		break;
 	}
@@ -734,15 +873,155 @@ void CMultiClipBoardDlg::OnTimer(UINT_PTR nIDEvent)
 }
 
 
-void CMultiClipBoardDlg::OnMenuQuit()
+ClipboardWnd* CMultiClipBoardDlg::FindClipboardWndById(int id)
+{
+	ClipboardWnd* wnd = NULL;
+
+	do 
+	{
+		if (m_clipboardWndList.GetSize() > 0)
+		{
+			POSITION pos = NULL;
+			pos = m_clipboardWndList.GetHeadPosition();
+			while (pos != NULL)
+			{
+				wnd = m_clipboardWndList.GetNext(pos);
+				if (wnd->m_id == id)
+				{
+					break;
+				}
+			}
+		}
+	} while (FALSE);
+
+	return wnd;
+}
+
+void CMultiClipBoardDlg::DestoryClipboardWnd()
+{
+	POSITION pos = m_destoryList.GetHeadPosition();
+
+	while (pos)
+	{
+		DWORD wndId = m_destoryList.GetNext(pos);
+		m_destoryList.RemoveHead();
+		ClipboardWnd* wnd = FindClipboardWndById(wndId);
+		if (wnd != NULL)
+		{
+			if (m_curClipboardWnd == wnd)
+			{
+				OnSwitchClipboard(TRUE, 0);
+			}
+
+			// 移除，并且调整窗口位置
+			m_clipboardWndList.RemoveAt(m_clipboardWndList.Find(wnd));
+			AdjustWndLayout();
+			RECT rect = { 0 };
+			if (CalculateWindow(rect))
+			{
+				MoveWindow(&rect);
+				RedrawWindow();
+			}
+			delete wnd;
+		}
+	}
+}
+
+
+LRESULT CMultiClipBoardDlg::OnDestoryClipboardWnd(WPARAM wParam, LPARAM lParam)
+{
+	int wndId = (wParam);
+	if (wndId < 0)
+	{
+		return 1;
+	}
+	SetTimer(ID_TIMER_DESTORYCLIPBOARD, 100, NULL);
+	m_destoryList.AddTail(wndId);
+	return 0;
+}
+
+
+LRESULT CMultiClipBoardDlg::OnClipboardSelected(WPARAM wParam, LPARAM lParam)
+{
+	int wndId = (wParam);
+	if (wndId < 0)
+	{
+		return 1;
+	}
+
+	ClipboardWnd* wnd = FindClipboardWndById(wndId);
+	if (wnd != NULL)
+	{
+		m_curClipboardWnd = wnd;
+		SetClipboardDataByCurrent();
+	}
+
+	return 0;
+}
+
+
+void CMultiClipBoardDlg::OnTrayQuit()
 {
 	OnClose();
 }
 
 
-void CMultiClipBoardDlg::OnMouseMove(UINT nFlags, CPoint point)
+void CMultiClipBoardDlg::OnTrayConfig()
 {
-	// TODO: 在此添加消息处理程序代码和/或调用默认值
+	CConfigDlg dlg(this);
+	dlg.DoModal();
+}
 
-	CDialogEx::OnMouseMove(nFlags, point);
+
+void CMultiClipBoardDlg::OnTrayAbout()
+{
+	CActiveDialog dlg;
+	dlg.DoModal();
+}
+
+
+void CMultiClipBoardDlg::OnTrayPause()
+{
+	CMenu* subMenu = m_menu.GetSubMenu(0);
+	CString itemString;
+	subMenu->GetMenuStringW(IDM_TRAY_PAUSE, itemString, MF_BYCOMMAND);
+
+	if (itemString.Compare(_T("暂停")) == 0)
+	{
+		ChangeClipboardChain(m_hNextClipboardViewer);
+		m_hNextClipboardViewer = NULL;
+		UnregisterHotKey(m_hWnd, ID_HOTKEY);
+		subMenu->ModifyMenuW(IDM_TRAY_PAUSE, MF_BYCOMMAND | MF_STRING, IDM_TRAY_PAUSE, _T("继续"));
+	}
+	else if (itemString.Compare(_T("继续")) == 0)
+	{
+		m_hNextClipboardViewer = SetClipboardViewer();
+		// 注册快捷键
+		RegisterHotKey(m_hWnd, ID_HOTKEY, MOD_CONTROL, L'Q');
+
+		subMenu->ModifyMenuW(IDM_TRAY_PAUSE, MF_BYCOMMAND | MF_STRING, IDM_TRAY_PAUSE, _T("暂停"));
+	}
+}
+
+
+void CMultiClipBoardDlg::OnSetFocus(CWnd* pOldWnd)
+{
+	CDialogEx::OnSetFocus(pOldWnd);
+
+	OutPutString(_T("[%s], wnd = %x"), __FUNCTIONW__, m_hWnd);
+}
+
+
+void CMultiClipBoardDlg::OnKillFocus(CWnd* pNewWnd)
+{
+	CDialogEx::OnKillFocus(pNewWnd);
+
+	OutPutString(_T("[%s], wnd = %x"), __FUNCTIONW__, m_hWnd);
+}
+
+
+afx_msg LRESULT CMultiClipBoardDlg::OnSwitchAlphaChanged(WPARAM wParam, LPARAM lParam)
+{
+	SetLayeredWindowAttributes(0xFFFFFF, (byte)wParam, LWA_ALPHA);
+	return 0;
 }
